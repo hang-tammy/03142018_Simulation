@@ -113,5 +113,5 @@ update(m1, 5000)
 s1 <- coda.samples(m1, variable.names=c("baseline", "skill", "group_skill", "group_sigma"), n.iter=10000, thin=2)
 
 # Merging the three MCMC chains into one matrix
-ms1 <- as.matrix(s1)
+ms1 <- as.matrix(s1) 
 ```
