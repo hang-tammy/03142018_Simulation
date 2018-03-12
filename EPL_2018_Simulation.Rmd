@@ -1,6 +1,7 @@
 ---
 title: "EPL Goals Monte Carlo Simulation"
-output: html_notebook
+output: Simulations of Predicted Goals
+authors: Tammy Hang, Taylor Maxson, Brenden McGale
 ---
 
 This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
@@ -8,59 +9,109 @@ This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute
 Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
 
 
-Install packages for simulation
+Install packages for simulation and set.seed for reproducibility
 ```{r}
+install.packages("runjags", dependencies = TRUE, repos = "http://cran.us.r-project.org")
+install.packages("MCMCpack", dependencies = TRUE, repos = "http://cran.us.r-project.org")
 library(tidyverse)
+install.packages("R2jags")
+library(R2jags)
+install.packages("coda")
+library(coda)
+install.packages("mcmcplots")
+library(mcmcplots)
+library(dplyr)
+library(xtable)
 ```
-
 
 Load data and clean up dataframe to columns being utlized. 
 ```{r}
 EPL_2018 <- read_csv('E0.csv')
 
-EPL_2018_2 <- transmute(EPL_2018, dt=as.Date(Date, format="%d/%m/%y"),
-                     dt, Team=HomeTeam, Home=TRUE,  AwayTeam, GoalsFor=FTHG, GoalsAgainst=FTAG,  Result=sign(GoalsFor-GoalsAgainst), FTR, HS, AS, HST, AST, B365H, B365D, B365A)
+EPL_2018_2 <- transmute(EPL_2018, dt=as.Date(Date, format="%d/%m/%y"),dt, HomeTeam, Home=TRUE,  AwayTeam, GoalsFor=FTHG, GoalsAgainst=FTAG,  Match_Result=sign(GoalsFor-GoalsAgainst), FTR, HS, AS, HST, AST, B365H, B365D, B365A)
+```
+
+Creating a dataframe EPL_Clean with only complete match results 
+Omitting any NAs
+
+```{r}
+EPL_Clean <- na.omit(EPL_2018_2)
+
+teams <- unique(c(EPL_Clean$HomeTeam, EPL_Clean$AwayTeam))
+season_date <- unique(EPL_Clean$dt)
+```
+
+A list for JAGS with the data from EPL Clean where the strings are coded as integers 
+```{r}
+data_list <- list(GoalsFor = EPL_Clean$GoalsFor, GoalsAgainst = EPL_Clean$GoalsAgainst, 
+                  HomeTeam = as.numeric(factor(EPL_Clean$HomeTeam, levels=teams)),
+                  AwayTeam = as.numeric(factor(EPL_Clean$AwayTeam, levels=teams)),
+                  Season = as.numeric(factor(EPL_Clean$dt, levels=season_date)),
+                  n_teams = length(teams), n_games = nrow(dt), 
+                  n_seasons = length(dt))
+```
+Convenience function to generate the type of column names Jags outputs.
+
+```{r}
+col_name <- function(name, ...) {
+  paste0(name, "[", paste(..., sep=",") , "]")}
+```
+
+Modeling Match Results: iteration 1 
+
+
+The distribution of number of goals for each team in EPL
+Given the assumption that all game matches are roughly equally long, that both teams have many chances at making a goal and that each team have the same probability of making a goal each goal chance. Given these assumptions the distribution of the number of goals for each team should be well captured by a Poisson distribution. A quick comparison between the actual distribution of the number of scored goals and a Poisson distribution having the same mean number of scored goals support this notion
+```{r fig.height=8, fig.width=10}
+old_par <- par(mfcol=c(2,1), mar=rep(2.2, 4))
+hist(c(EPL_Clean$GoalsAgainst, EPL_Clean$GoalsFor), xlim=c(-0.5, 8), breaks = -1:9 + 0.5)
+
+mean_goals <- mean(c(EPL_Clean$GoalsAgainst, EPL_Clean$GoalsFor))
+hist(rpois(9999, mean_goals), xlim=c(-0.5, 8), breaks = -1:9 + 0.5)
+par(old_par)
+
+
+```
+
+
+```{r tidy=FALSE}
+m1_string <- "model {
+for(i in 1:n_games) {
+  GoalsFor[i] ~ dpois(lambda_home[HomeTeam[i],AwayTeam[i]])
+  GoalsAgainst[i] ~ dpois(lambda_away[HomeTeam[i],AwayTeam[i]])
+}
+
+for(home_i in 1:n_teams) {
+  for(away_i in 1:n_teams) {
+    lambda_home[home_i, away_i] <- exp(baseline + skill[home_i] - skill[away_i])
+    lambda_away[home_i, away_i] <- exp(baseline + skill[away_i] - skill[home_i])
+  }
+}
+
+skill[1] <- 0
+for(j in 2:n_teams) {
+  skill[j] ~ dnorm(group_skill, group_tau)
+}  
+
+group_skill ~ dnorm(0, 0.0625)
+group_tau <- 1 / pow(group_sigma, 2)
+group_sigma ~ dunif(0, 3)
+baseline ~ dnorm(0, 0.0625)
+}"
 
 ```
 
 
 ```{r}
-standings <- group_by(EPL_2018_2,Team) %>% arrange(desc(dt)) %>%
-             summarize(Played=length(dt),
-                       Won=sum(Result==1),
-                       Lost=sum(Result==-1),
-                       Tied=sum(Result==0),
-                       Won10=sum(head(Result,10)==1),
-                       Lost10=sum(head(Result,10)==-1),
-                       Tied10=sum(head(Result,10)==0),
-                       HomeWon=sum(Result==1 & Home),
-                       HomeLost=sum(Result==-1 & Home),
-                       HomeTied=sum(Result==0 & Home),
-                       AwayWon=sum(Result==1 & !Home),
-                       AwayLost=sum(Result==-1 & !Home),
-                       AwayTied=sum(Result==0 & !Home),
-                       GFor=sum(GoalsFor), GAgainst=sum(GoalsAgainst),
-                       StreakType=head(Result,1),
-                       StreakLen=min(which(Result!=StreakType)-1)
-             )
+# Compiling model 1
+m1 <- jags.model(textConnection(m1_string), data=data_list, n.chains=3, n.adapt=5000)
 
-finaltable <- transmute(standings,
-                        Team,
-                        Record = paste0(Won,"-",Lost,"-",Tied),
-                        HomeRec = paste0(HomeWon,"-",HomeLost,"-",HomeTied),
-                        AwayRec = paste0(AwayWon,"-",AwayLost,"-",AwayTied),
-                        MatchesPlayed = Played,
-                        Points = Won*3+Tied,
-                        PPM = Points/MatchesPlayed,
-                        PtPct = Points/(3*MatchesPlayed),
-                        GS=GFor,
-                        GSM=GFor/MatchesPlayed,
-                        GA=GAgainst,
-                        GAM=GAgainst/MatchesPlayed,
-                        Last10 = paste0(Won10,"-",Lost10,"-",Tied10),
-                        Streak = paste0(ifelse(StreakType==1,"W", ifelse(StreakType==0,"D","L")),StreakLen)                        
-                                                                )
+# Burning some samples on the altar of the MCMC god
+update(m1, 5000)
 
+# Generating MCMC samples
+s1 <- coda.samples(m1, variable.names=c("baseline", "skill", "group_skill", "group_sigma"), n.iter=10000, thin=2)
+
+# Merging the three MCMC chains into one matrix
+ms1 <- as.matrix(s1)
 ```
-
-
