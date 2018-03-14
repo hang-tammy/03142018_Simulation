@@ -1,0 +1,108 @@
+#Pull season scores
+scores <- read.csv("nhl.dat.csv", stringsAsFactors = FALSE)
+# Create array for Team pairs in each match played
+sMatch <- paste(scores$HomeTeam, scores$AwayTeam, sep = " - ")
+# Create vector of each team in the EPL
+sTeams <- c(scores$HomeTeam, scores$AwayTeam) %>% 
+  unique() %>% 
+  sort()
+
+# Create probabilities with Goals scored in matches played
+
+      #NOTE: NHL Standings are scored as followed: 2pts for Wins, 1 Pts for OT Win, and 1PT for Shootout             Loss. For Simplicity we will just score assign 1 Pts for a win and disregard OT & SO.
+HomeStats <- scores %>% 
+  group_by(HomeTeam) %>%
+  summarise(GP = length(Result), # number of matches played Home
+            Pts = sum(HomeGoal > AwayGoal),# Points earned Home matches
+            GS = sum(HomeGoal), # Total Goals scored by Home Team
+            GC = sum(AwayGoal)) %>% ungroup() # Total Goals Conceded by Home Team
+
+
+AwayStats <- scores %>% 
+  group_by(AwayTeam) %>%
+  summarise(GP = length(Result), # number of matches played Away
+            Pts = sum(HomeGoal < AwayGoal), # Points earned Away matches
+            GS = sum(AwayGoal), # Total Goals scored by Away Team
+            GC = sum(HomeGoal)) %>% ungroup() # Total Goals Conceded by Away Team
+
+
+# Generate Stats for each team. Sum stats for both away and home games for calculate 
+# Totals Points, Goal Difference (Scored - Conceded), Avg Goals Scored,Avg Goals Conceded
+TeamStats <- data.frame(Team = sTeams,
+                            Points = HomeStats$Pts+AwayStats$Pts,
+                            GDiff = (HomeStats$GS+AwayStats$GS)-(HomeStats$GC+AwayStats$GC),
+                            AvgGS = (HomeStats$GS+AwayStats$GS)/(HomeStats$GP+AwayStats$GP),
+                            AvgGC = (HomeStats$GC+AwayStats$GC)/(HomeStats$GP + AwayStats$GP),
+                            stringsAsFactors = F)
+
+# Load CSV which includes the remaining March and April NHL Games
+MatchNew <- read.csv("nhl.unplayed.csv", stringsAsFactors = F)
+Unplayed <- MatchNew[,c(2,3)] %>% 
+  mutate(HG = mean(scores$HomeGoal), #fill Homes Goals with League Average @ Home
+         AG = mean(scores$AwayGoal), #fill Away Goals with League Average Away
+         TG = (mean(scores$HomeGoal) + mean(scores$AwayGoal))/2) %>% # League Avg Home & Away
+  right_join(subset(TeamStats, select = -c(Points, GDiff)),  by = c("HomeTeam" = "Team")) %>%
+  right_join(subset(TeamStats, select = -c(Points, GDiff)), by = c("AwayTeam" = "Team")) %>%
+  setNames(c("HomeTeam", "AwayTeam", "HG", "AG", "TG", 
+             "GS.by.H", "GC.by.H", "GS.by.A", "GC.by.A")) %>%
+  mutate(xG_home = (GS.by.H / TG) * (GC.by.A / TG) * (HG / TG) * TG,
+         xG_Away = (GS.by.A / TG) * (GC.by.H / TG) * (AG / TG) * TG) %>%
+  ungroup()
+### Expected goals are calculated according to the moethod posted by Mark Taylor @ 
+### http://thepowerofgoals.blogspot.com.cy/2016/02/how-to-frame-individual-match-outcome.html ###
+
+
+##########################
+rounds <- 500  # Set number of simulations
+n <- length(sTeams)
+# Create emtpy DF to store results
+result <- data.frame(Team = rep(sTeams, rounds),
+                     Round = rep(1:rounds, each = n),
+                     Pts = rep(NA, n * rounds),
+                     GoalDiff = rep(NA, n * rounds),
+                     Rank = rep(NA, n * rounds))
+# Run Simulation
+set.seed(1111)
+for (i in 1:rounds){
+  # simulation independent Poisson random variables with rate Lambda set to the expected Goals (Home/Away). While 3 periods of one game are not independent increments in time, we treat each game as an independent event for meet a condition of the Poisson counting process.
+  temp.df <- Unplayed %>% 
+    mutate(x1 = rpois(nrow(Unplayed), Unplayed$xG_home),
+           x2 = rpois(nrow(Unplayed), Unplayed$xG_Away), 
+           HPts = (x1 > x2),
+           APts = (x1 < x2))
+  
+  res <- TeamStats %>% select(Points, GDiff) + 
+    temp.df %>% group_by(HomeTeam) %>% summarise(Pts = sum(HPts),
+                                             GD = sum(x1) - sum(x2)) %>% select(Pts, GD) + 
+    temp.df %>% group_by(AwayTeam) %>% summarise(Pts = sum(APts),
+                                             GD = sum(x2) - sum(x1)) %>% select(Pts, GD) 
+  
+  result[(n*(i-1) + 1):(n*i), c("Pts", "GoalDiff")] <- res
+  
+  res$PGD <- res$Points + (res$GD - min(res$GD) + 1) / max((res$GD - min(res$GD) + 1) + 1)
+  result[(n*(i-1) + 1):(n*i), c("Rank")] <- rank(-res$PGD, ties.method = "random")  
+}
+###########################
+### View Results
+# While this simulation has only modeled regular season games, we can see which view which team has the highest probability of be ranked #1 across, 4 conferences, going into the playoffs.
+result %>% filter(Rank == 1) %>% select(Team) %>% table/rounds
+# It looks like the Tampa Bay Lightning are the favorite @ 83.4%. At this point in the actual season, The Lightning lead the Atlantic Divison and have the best overall record of 48W-18L
+
+
+# We can also take a look at all of the current top seeds in the rest of the conferences
+# Washington Capitals: Metropolitan Division
+result %>% filter(Team == "Washington Capitals") %>% select(Rank) %>% table/rounds
+# Nashville Predators: Central Division
+result %>% filter(Team == "Nashville Predators") %>% select(Rank) %>% table/rounds
+# Vegas Golden Knights: Pacific Division
+result %>% filter(Team == "Vegas Golden Knights") %>% select(Rank) %>% table/rounds
+
+# Or we can look as all Team's probabilities to respective rank
+table(result$Team, result$Rank)/rounds
+
+
+# SUMMARY
+    # IMPROVEMENTS TO MODEL. It would have been ideal to score the rankings more accuratley by including Overtime and Shootout data. It appears that the probabilities are heavily influenced but the current overall W-L records at this point in the season.
+
+# http://www1.maths.leeds.ac.uk/~voss/projects/2010-sports/JamesGardner.pdf
+# To Talk about assigning how poisson distribution is a good way to generate random variables since each game is arguably independent of
