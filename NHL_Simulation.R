@@ -4,7 +4,7 @@ library(readr)
 library(ggplot2)
 library(purrr)
 library(tidyr)
-library(RCurl)
+library(RCurl) 
 
 #Pull season scores
 scores <- read.csv("nhl.dat.csv", stringsAsFactors = FALSE)
