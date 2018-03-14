@@ -1,3 +1,11 @@
+#Install Packages 
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(purrr)
+library(tidyr)
+library(RCurl)
+
 #Pull season scores
 scores <- read.csv("nhl.dat.csv", stringsAsFactors = FALSE)
 # Create array for Team pairs in each match played
@@ -6,6 +14,7 @@ sMatch <- paste(scores$HomeTeam, scores$AwayTeam, sep = " - ")
 sTeams <- c(scores$HomeTeam, scores$AwayTeam) %>% 
   unique() %>% 
   sort()
+
 
 # Create probabilities with Goals scored in matches played
 
@@ -61,6 +70,19 @@ result <- data.frame(Team = rep(sTeams, rounds),
                      Pts = rep(NA, n * rounds),
                      GoalDiff = rep(NA, n * rounds),
                      Rank = rep(NA, n * rounds))
+
+
+#Modeling Match Results with Graphs: Distribution and Poisson Distribution
+#The distribution of the number of goals for each team should be well captured by a Poisson distribution.  A quick comparison between the actual distribution of the number of scored goals and Poisson distribution having the likilhood number of goals that will be scored in a hockey game.  
+par(mfcol = c(2, 1), mar = rep(2.2, 4))
+hist(c(scores$AwayGoal, scores$HomeGoal),
+     main = "Distribution of the number of goals scored by a team in a match.")
+
+mean_goals <- mean(c(scores$AwayGoal, scores$HomeGoal))
+hist(rpois(9999, mean_goals), 
+     main = "Random draw from a Poisson distribution with same mean as the distribution above.")
+
+
 # Run Simulation
 set.seed(1111)
 for (i in 1:rounds){
@@ -82,6 +104,8 @@ for (i in 1:rounds){
   res$PGD <- res$Points + (res$GD - min(res$GD) + 1) / max((res$GD - min(res$GD) + 1) + 1)
   result[(n*(i-1) + 1):(n*i), c("Rank")] <- rank(-res$PGD, ties.method = "random")  
 }
+
+
 ###########################
 ### View Results
 # While this simulation has only modeled regular season games, we can see which view which team has the highest probability of be ranked #1 across, 4 conferences, going into the playoffs.
