@@ -8,7 +8,7 @@ output:
 
 
 ```{r}
-#Install Packages 
+#Install Packages  
 library(dplyr)
 library(readr)
 library(ggplot2)
@@ -28,7 +28,8 @@ sTeams <- c(scores$HomeTeam, scores$AwayTeam) %>%
   sort()
 ```
 
-# Create probabilities with Goals scored in matches played      #NOTE: NHL Standings are scored as followed: 2pts for Wins, 1 Pts for OT Win, and 1PT for Shootout Loss. For Simplicity we will just score assign 1 Pts for a win and disregard OT & SO.
+####Create probabilities with Goals scored in matches played      
+####NOTE: NHL Standings are scored as followed: 2pts for Wins, 1 Pts for OT Win, and 1PT for Shootout Loss. For Simplicity we will just score assign 1 Pts for a win and disregard OT & SO.
 ```{r}
 
 HomeStats <- scores %>% 
@@ -47,8 +48,8 @@ AwayStats <- scores %>%
             GC = sum(HomeGoal)) %>% ungroup() # Total Goals Conceded by Away Team
 ```
 
-# Generate Stats for each team. Sum stats for both away and home games for calculate 
-# Totals Points, Goal Difference (Scored - Conceded), Avg Goals Scored,Avg Goals Conceded
+####Generate Stats for each team. Sum stats for both away and home games for calculate 
+####Totals Points, Goal Difference (Scored - Conceded), Avg Goals Scored,Avg Goals Conceded
 
 ```{r}
 TeamStats <- data.frame(Team = sTeams,
@@ -59,7 +60,7 @@ TeamStats <- data.frame(Team = sTeams,
                             stringsAsFactors = F)
 ```
 
-# Load CSV which includes the remaining March and April NHL Games
+####Load CSV which includes the remaining March and April NHL Games
 
 ```{r}
 MatchNew <- read.csv("nhl.unplayed.csv", stringsAsFactors = F)
@@ -76,8 +77,8 @@ Unplayed <- MatchNew[,c(2,3)] %>%
   ungroup()
 ```
 
-### Expected goals are calculated according to the moethod posted by Mark Taylor @ 
-### http://thepowerofgoals.blogspot.com.cy/2016/02/how-to-frame-individual-match-outcome.html ###
+####Expected goals are calculated according to the moethod posted by Mark Taylor @ 
+#### http://thepowerofgoals.blogspot.com.cy/2016/02/how-to-frame-individual-match-outcome.html ###
 
 ```{r}
 rounds <- 500  # Set number of simulations
@@ -90,7 +91,7 @@ result <- data.frame(Team = rep(sTeams, rounds),
                      Rank = rep(NA, n * rounds))
 ```
 
-#Modeling Match Results with Graphs: Distribution and Poisson Distribution
+####Modeling Match Results with Graphs: Distribution and Poisson Distribution
 #The distribution of the number of goals for each team should be well captured by a Poisson distribution.  A quick comparison between the actual distribution of the number of scored goals and Poisson distribution having the likilhood number of goals that will be scored in a hockey game. 
 
 ```{r}
@@ -103,7 +104,7 @@ hist(rpois(9999, mean_goals),
      main = "Random draw from a Poisson distribution with same mean as the distribution above.")
 ```
 
-# Run Simulation
+####Run Simulation
 
 ```{r}
 set.seed(1111)
@@ -128,42 +129,42 @@ for (i in 1:rounds){
 }
 ```
 
-### View Results
-# While this simulation has only modeled regular season games, we can see which view which team has the highest probability of be ranked #1 across, 4 conferences, going into the playoffs.
+####View Results
+####While this simulation has only modeled regular season games, we can see which view which team has the highest probability of be ranked #1 across, 4 conferences, going into the playoffs.
 ```{r}
 result %>% filter(Rank == 1) %>% select(Team) %>% table/rounds
 ```
 
-# It looks like the Tampa Bay Lightning are the favorite @ 83.4%. At this point in the actual season, The Lightning lead the Atlantic Divison and have the best overall record of 48W-18L
+####It looks like the Tampa Bay Lightning are the favorite @ 83.4%. At this point in the actual season, The Lightning lead the Atlantic Divison and have the best overall record of 48W-18L
 
-# We can also take a look at all of the current top seeds in the rest of the conferences
+####We can also take a look at all of the current top seeds in the rest of the conferences
 
-# Washington Capitals: Metropolitan Division
+####Washington Capitals: Metropolitan Division
 
 ```{r}
 result %>% filter(Team == "Washington Capitals") %>% select(Rank) %>% table/rounds
 ```
 
-# Nashville Predators: Central Division
+####Nashville Predators: Central Division
 
 ```{r}
 result %>% filter(Team == "Nashville Predators") %>% select(Rank) %>% table/rounds
 ```
 
-# Vegas Golden Knights: Pacific Division
+####Vegas Golden Knights: Pacific Division
 
 ```{r}
 result %>% filter(Team == "Vegas Golden Knights") %>% select(Rank) %>% table/rounds
 ```
 
-# Or we can look as all Team's probabilities to respective rank
+####Or we can look as all Team's probabilities to respective rank
 
 ```{r}
 table(result$Team, result$Rank)/rounds
 ```
 
-# SUMMARY
+####SUMMARY
     # IMPROVEMENTS TO MODEL. It would have been ideal to score the rankings more accuratley by including Overtime and Shootout data. It appears that the probabilities are heavily influenced but the current overall W-L records at this point in the season.
 
-# http://www1.maths.leeds.ac.uk/~voss/projects/2010-sports/JamesGardner.pdf
-# To Talk about assigning how poisson distribution is a good way to generate random variables since each game is arguably independent of
+####http://www1.maths.leeds.ac.uk/~voss/projects/2010-sports/JamesGardner.pdf
+####To Talk about assigning how poisson distribution is a good way to generate random variables since each game is arguably independent of
